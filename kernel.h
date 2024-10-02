@@ -15,7 +15,7 @@
 4: Shifted Sphere's Function
 */
 const int SELECTED_OBJ_FUNC = 0;
-const int NUM_OF_PARTICLES = 512;
+const int NUM_OF_POPULATION = 512;
 const int NUM_OF_DIMENSIONS = 3;
 const int MAX_ITER = NUM_OF_DIMENSIONS * pow(10, 4);
 const float START_RANGE_MIN = -5.12f;
