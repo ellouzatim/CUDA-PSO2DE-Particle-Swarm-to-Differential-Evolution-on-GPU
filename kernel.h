@@ -30,6 +30,9 @@ float getRandom(float low, float high);
 float getRandomClamped();
 float host_fitness_function(float x[]);
 
+
 // Fonction externe qui va tourner sur le GPU
 extern "C" void cuda_pso(float *positions, float *velocities, float *pBests, float *gBest);
+extern "C" void performDEMutation(float *d_individuals, float *d_indexMutation, float *d_mutants, int populationSize, int dimensions, float F, cudaStream_t stream);
+
 
