@@ -106,6 +106,42 @@ __global__ void kernelUpdateParticle(float *positions, float *velocities,
 }
 
 /**
+ * Crossover DE
+ * Update the values of the param mutated_individuals with the crossover
+ *
+ * Params :
+ *  - previous_individuals : current population
+ *  - mutated_individuals : population with mutation
+ *  - k : random [0, D-1], D = dimension (generated each iteartion) 
+*/
+__global__ void kernelCrossoverDE (
+    float *previous_individuals, 
+    float *mutated_individuals, 
+    int k
+    )
+{
+    // id du processus
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // avoid an out of bound for the array 
+    if(i >= NUM_OF_PARTICLES * NUM_OF_DIMENSIONS)
+        return;
+
+    // individual : ceil(i / NUM_OF_DIMENSIONS), not useful to compute here
+
+    // j : current index the individual 
+    int j = i % NUM_OF_DIMENSIONS; 
+    float randj = getRandomClamped(); // random [0, 1], cf. kernel.cpp
+    
+    // cf. crossover, equation (2) in the paper
+    if (! (randj <= CR || j == k))
+    {
+        // <=> vector U(i,j) in the paper
+        mutated_individuals[i] = previous_individuals[i];
+    }
+}
+
+/**
  * Runs on the GPU, called from the CPU or the GPU
 */
 __global__ void kernelUpdatePBest(float *positions, float *pBests, float* gBest)
