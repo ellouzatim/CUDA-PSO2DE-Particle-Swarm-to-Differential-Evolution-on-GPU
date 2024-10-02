@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "lldb",
+      "request": "launch",
+      "args": [],
+      "cwd": "/Users/mohamedellouzati/Downloads/CudaPSO2024-2025",
+      "program": "/Users/mohamedellouzati/Downloads/CudaPSO2024-2025/build/Debug/outDebug"
+    }
+  ]
+}
