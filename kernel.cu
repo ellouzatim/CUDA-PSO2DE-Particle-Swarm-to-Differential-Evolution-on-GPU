@@ -166,28 +166,6 @@ __global__ void kernelCrossoverDE (
     }
 }
 
-/**
- * Runs on the GPU, called from the CPU or the GPU
-*/
-__global__ void kernelUpdatePBest(float *positions, float *pBests, float* gBest)
-{
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    
-    if(i >= NUM_OF_PARTICLES * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0)
-        return;
-
-    for (int j = 0; j < NUM_OF_DIMENSIONS; j++)
-    {
-        tempParticle1[j] = positions[i + j];
-        tempParticle2[j] = pBests[i + j];
-    }
-
-    if (fitness_function(tempParticle1) < fitness_function(tempParticle2))
-    {
-        for (int k = 0; k < NUM_OF_DIMENSIONS; k++)
-            pBests[i + k] = positions[i + k];
-    }
-}
 __global__ void kernelDEMutation(float *individuals, int *indexMutation, float *mutants, float F) {
     extern __shared__ float sharedMem[];
     
