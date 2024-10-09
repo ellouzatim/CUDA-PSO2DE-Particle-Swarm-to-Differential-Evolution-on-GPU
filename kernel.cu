@@ -1,4 +1,5 @@
 #include <cuda_runtime.h>
+#include <curand_kernel.h>
 #include <cuda.h>
 #include <math_functions.h>
 #include "kernel.h"
@@ -157,7 +158,7 @@ __global__ void kernelCrossoverDE (
     float *previous_individuals, 
     float *mutated_individuals, 
     int k,
-    curandState states
+    curandState *states
     )
 {
     // id du processus
