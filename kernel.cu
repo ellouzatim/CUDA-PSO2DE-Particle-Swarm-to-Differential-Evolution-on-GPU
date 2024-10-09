@@ -44,14 +44,28 @@ __global__ void kernelEvaluerPopulation(float*population,float *evaluation)
     evaluation[i] = fitness_function(tempParticle);
 }
 
-__global__ void setupCurand(curandState *state, unsigned long long seed) 
+/**
+ * Initalise un état curandState
+ * 
+ * @param states Tableau pour stocker les états curandState
+ * @param seed Graine pour la génération aléatoire
+ */
+__global__ void setupCurand(curandState *states, unsigned long long seed) 
 {
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     if (i < NUM_OF_PARTICLES || i % NUM_OF_DIMENSIONS != 0) {
-        curand_init(seed, id, 0, &state[id]);
+        curand_init(seed, id, 0, &states[i]);
     }
 }
 
+
+/**
+ * Créer aléatoirement un tableau d'indices pour la mutation. 
+ * Pour chaque individu, on créer 3 indices distincts et différents de i entre 0 et NUM_OF_DIMENSIONS.
+ * 
+ * @param indexMutation Tableau d'entier pour stocker les indices
+ * @param states Tableau d'états pour la génération aléatoire
+ */
 __global__ void kernelPrepareMutation(int *indexMutation, curandState *states)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
