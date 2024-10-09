@@ -157,55 +157,76 @@ __global__ void kernelUpdatePBest(float *positions, float *pBests, float* gBest)
             pBests[i + k] = positions[i + k];
     }
 }
-
+__global__ void kernelDEMutation(float *individuals, int *indexMutation, float *mutants, float F) {
+    extern __shared__ float sharedMem[];
+    
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= NUM_OF_POPULATION) return;
+    
+    int r_base = indexMutation[i * 3];
+    int r_1 = indexMutation[i * 3 + 1];
+    int r_2 = indexMutation[i * 3 + 2];
+    
+    float *base = &sharedMem[threadIdx.x * NUM_OF_DIMENSIONS * 3];
+    float *x_r1 = &base[NUM_OF_DIMENSIONS];
+    float *x_r2 = &x_r1[NUM_OF_DIMENSIONS];
+    
+    for (int d = 0; d < NUM_OF_DIMENSIONS; d++) {
+        base[d] = individuals[r_base * NUM_OF_DIMENSIONS + d];
+        x_r1[d] = individuals[r_1 * NUM_OF_DIMENSIONS + d];
+        x_r2[d] = individuals[r_2 * NUM_OF_DIMENSIONS + d];
+    }
+    
+    __syncthreads();
+    
+    for (int d = 0; d < NUM_OF_DIMENSIONS; d++) {
+        mutants[i * NUM_OF_DIMENSIONS + d] = base[d] + F * (x_r1[d] - x_r2[d]);
+    }
+}
+  
 extern "C" void cuda_de(float *population, float* evaluation)
 {
-    int size = NUM_OF_POPULATION * NUM_OF_DIMENSIONS;
-   
-    // declare all the arrays on the device
     float *devPopulation;
     float *devEval;
+    float *devMutants;
+    int *devIndexMutation;
     float temp[NUM_OF_DIMENSIONS];
        
-    // Memory allocation
     cudaMalloc((void**)&devPopulation, sizeof(float) * size);
+    cudaMalloc((void**)&devEval, sizeof(float) * NUM_OF_POPULATION);
+    cudaMalloc((void**)&devMutants, sizeof(float) * size);
+    cudaMalloc((void**)&devIndexMutation, sizeof(int) * NUM_OF_POPULATION * 3);
 
-    // Thread & Block number
-    int threadsNum = 32;
-    int blocksNum = ceil(size / threadsNum);
+    int threadsNum = 256;
+    int blocksNum = (NUM_OF_POPULATION + threadsNum - 1) / threadsNum;
+    int sharedMemSize = threadsNum * NUM_OF_DIMENSIONS * 3 * sizeof(float);
    
-    // Copy particle datas from host to device
-    /**
-     * Copy in GPU memory the data from the host
-     * */
     cudaMemcpy(devPopulation, population, sizeof(float) * size, cudaMemcpyHostToDevice);
-    cudaMemcpy(devEval, evaluation, sizeof(float) * size,cudaMemcpyHostToDevice);
-    // PSO main function
-    // MAX_ITER = 30000;
+    cudaMemcpy(devEval, evaluation, sizeof(float) * NUM_OF_POPULATION, cudaMemcpyHostToDevice);
   
-
     for (int iter = 0; iter < MAX_ITER; iter++)
     {    
         kernelInitializePopulation<<<blocksNum, threadsNum>>>(devPopulation);  
-       
 
-        cudaMemcpy(population, devPopulation,sizeof(float) * size,cudaMemcpyDeviceToHost);
-        cudaMemcpy(devPopulation, population, sizeof(float) * size, cudaMemcpyHostToDevice);
+        kernelEvaluerPopulation<<<blocksNum, threadsNum>>>(devPopulation, devEval);
 
-        kernelEvaluerPopulation<<<blocksNum, threadsNum>>>(devPopulation,devEval);         
-        cudaMemcpy(evaluation, devEval,sizeof(float) * size,cudaMemcpyDeviceToHost);
+        // Génération des indices de mutation (à implémenter)
+        // kernelGenerateIndices<<<blocksNum, threadsNum>>>(devIndexMutation);
+
+        kernelDEMutation<<<blocksNum, threadsNum, sharedMemSize>>>(devPopulation, devIndexMutation, devMutants, F);
+
+        int k = rand() % NUM_OF_DIMENSIONS;
+        kernelCrossoverDE<<<blocksNum, threadsNum>>>(devPopulation, devMutants, k);
         
+        // Ajoutez ici le kernel de sélection si nécessaire
+    }
+
+    cudaMemcpy(population, devPopulation, sizeof(float) * size, cudaMemcpyDeviceToHost);
+    cudaMemcpy(evaluation, devEval, sizeof(float) * NUM_OF_POPULATION, cudaMemcpyDeviceToHost);
    
     cudaFree(devPopulation);
     cudaFree(devEval);
-
+    cudaFree(devMutants);
+    cudaFree(devIndexMutation);
 }
-
-
-
-
-
-
-
-
-
+       
