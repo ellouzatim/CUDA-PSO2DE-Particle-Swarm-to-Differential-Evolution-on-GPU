@@ -44,6 +44,37 @@ __global__ void kernelEvaluerPopulation(float*population,float *evaluation)
     evaluation[i] = fitness_function(tempParticle);
 }
 
+__global__ void setupCurand(curandState *state, unsigned long long seed) 
+{
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    if (i < NUM_OF_PARTICLES || i % NUM_OF_DIMENSIONS != 0) {
+        curand_init(seed, id, 0, &state[id]);
+    }
+}
+
+__global__ void kernelPrepareMutation(int *indexMutation, curandState *state)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if(i >= NUM_OF_PARTICLES * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0)
+        return;
+
+    int offsetIndividu = i / NUM_OF_DIMENSIONS; //numéro/position du vecteur (de l'individu) dans la population
+    int offsetIndexMutation = offsetIndividu * 3; // numéro/position du vecteur dans la tableau d'indices de mutation
+
+    curandState localState = state[i / NUM_OF_DIMENSIONS];
+    int used[NUM_OF_PARTICLES] = {0};
+
+    int count = 0;
+    while (count < 3) {
+        int randomIdx = curand(localState) % NUM_OF_PARTICLES;
+        if (randomIdx != i && !used[randomIdx]) {
+            indexMutation[offsetIndexMutation + count] = randomIdx;
+            used[randomIdx] = 1;
+            count++;
+        }
+    }
+}
 
 __device__ float fitness_function(float x[]) {
     float res = 0;
@@ -195,11 +226,13 @@ extern "C" void cuda_de(float *population, float* evaluation)
     float *devMutants;
     int *devIndexMutation;
     float temp[NUM_OF_DIMENSIONS];
+    curandState *d_states;
        
     cudaMalloc((void**)&devPopulation, sizeof(float) * size);
     cudaMalloc((void**)&devEval, sizeof(float) * NUM_OF_POPULATION);
     cudaMalloc((void**)&devMutants, sizeof(float) * size);
     cudaMalloc((void**)&devIndexMutation, sizeof(int) * NUM_OF_POPULATION * 3);
+    cudaMalloc((void**)&d_states, sizeof(curandState) * NUM_OF_PARTICLES);
 
     int threadsNum = 256;
     int blocksNum = (NUM_OF_POPULATION + threadsNum - 1) / threadsNum;
@@ -214,8 +247,9 @@ extern "C" void cuda_de(float *population, float* evaluation)
 
         kernelEvaluerPopulation<<<blocksNum, threadsNum>>>(devPopulation, devEval);
 
-        // Génération des indices de mutation (à implémenter)
-        // kernelGenerateIndices<<<blocksNum, threadsNum>>>(devIndexMutation);
+        unsigned long long seed = time(NULL);
+        setupCurand<<<blocksNum, threadsNum>>>(d_states, seed);
+        kernelPrepareMutation<<<blocksNum, threadsNum>>>(indexMutations, d_states);
 
         kernelDEMutation<<<blocksNum, threadsNum, sharedMemSize>>>(devPopulation, devIndexMutation, devMutants, F);
 
