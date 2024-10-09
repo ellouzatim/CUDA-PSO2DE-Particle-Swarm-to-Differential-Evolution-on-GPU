@@ -215,7 +215,7 @@ extern "C" void cuda_de(float *population, float* evaluation)
 
         kernelDEMutation<<<blocksNum, threadsNum, sharedMemSize>>>(devPopulation, devIndexMutation, devMutants, F);
 
-        int k = rand() % NUM_OF_DIMENSIONS;
+        int k = getRandomClamped(0, NUM_OF_DIMENSIONS - 1);
         kernelCrossoverDE<<<blocksNum, threadsNum>>>(devPopulation, devMutants, k);
         
         // Ajoutez ici le kernel de sélection si nécessaire
