@@ -99,8 +99,63 @@ __device__ float fitness_function(float x[]) {
             break;
     }  
 
+/**
+ * Crossover DE
+ * Update the values of the param mutated_individuals with the crossover
+ *
+ * Params :
+ *  - previous_individuals : current population
+ *  - mutated_individuals : population with mutation
+ *  - k : random [0, D-1], D = dimension (generated each iteartion) 
+*/
+__global__ void kernelCrossoverDE (
+    float *previous_individuals, 
+    float *mutated_individuals, 
+    int k
+    )
+{
+    // id du processus
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
 
-    return res;
+    // avoid an out of bound for the array 
+    if(i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS)
+        return;
+
+    // individual : ceil(i / NUM_OF_DIMENSIONS), not useful to compute here
+
+    // j : current index the individual 
+    int j = i % NUM_OF_DIMENSIONS; 
+    float randj = getRandomClamped(); // random [0, 1], cf. kernel.cpp
+    
+    // cf. crossover, equation (2) in the paper
+    if (! (randj <= CR || j == k))
+    {
+        // <=> vector U(i,j) in the paper
+        mutated_individuals[i] = previous_individuals[i];
+    }
+}
+
+/**
+ * Runs on the GPU, called from the CPU or the GPU
+*/
+__global__ void kernelUpdatePBest(float *positions, float *pBests, float* gBest)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if(i >= NUM_OF_PARTICLES * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0)
+        return;
+
+    for (int j = 0; j < NUM_OF_DIMENSIONS; j++)
+    {
+        tempParticle1[j] = positions[i + j];
+        tempParticle2[j] = pBests[i + j];
+    }
+
+    if (fitness_function(tempParticle1) < fitness_function(tempParticle2))
+    {
+        for (int k = 0; k < NUM_OF_DIMENSIONS; k++)
+            pBests[i + k] = positions[i + k];
+    }
 }
 
 extern "C" void cuda_de(float *population, float* evaluation)
