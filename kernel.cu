@@ -161,7 +161,7 @@ __global__ void kernelDEMutation(float *individuals, int *indexMutation, float *
     extern __shared__ float sharedMem[];
     
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= NUM_OF_POPULATION) return;
+    if(i >= NUM_OF_PARTICLES * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0) return;
     
     int r_base = indexMutation[i * 3];
     int r_1 = indexMutation[i * 3 + 1];
@@ -186,6 +186,10 @@ __global__ void kernelDEMutation(float *individuals, int *indexMutation, float *
   
 extern "C" void cuda_de(float *population, float* evaluation)
 {
+    int size = NUM_OF_POPULATION * NUM_OF_DIMENSIONS;
+   
+    // declare all the arrays on the device
+
     float *devPopulation;
     float *devEval;
     float *devMutants;
