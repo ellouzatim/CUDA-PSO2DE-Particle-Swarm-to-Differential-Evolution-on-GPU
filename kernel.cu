@@ -253,7 +253,7 @@ extern "C" void cuda_de(float *population, float* evaluation)
         setupCurand<<<blocksNum, threadsNum>>>(dstatesCrossover, seed);
         int k = getRandom(0, NUM_OF_DIMENSIONS - 1);
         kernelCrossoverDE<<<blocksNum, threadsNum>>>(devPopulation, devMutants, k, dstatesCrossover);
-        
+                
         // Ajoutez ici le kernel de sélection si nécessaire
     }
 
