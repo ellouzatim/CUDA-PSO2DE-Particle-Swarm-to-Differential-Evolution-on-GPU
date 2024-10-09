@@ -183,11 +183,9 @@ __global__ void kernelDEMutation(float *individuals, int *indexMutation, float *
         mutants[i * NUM_OF_DIMENSIONS + d] = base[d] + F * (x_r1[d] - x_r2[d]);
     }
 }
-
+  
 extern "C" void cuda_de(float *population, float* evaluation)
 {
-    int size = NUM_OF_POPULATION * NUM_OF_DIMENSIONS;
-   
     float *devPopulation;
     float *devEval;
     float *devMutants;
@@ -205,7 +203,7 @@ extern "C" void cuda_de(float *population, float* evaluation)
    
     cudaMemcpy(devPopulation, population, sizeof(float) * size, cudaMemcpyHostToDevice);
     cudaMemcpy(devEval, evaluation, sizeof(float) * NUM_OF_POPULATION, cudaMemcpyHostToDevice);
-
+  
     for (int iter = 0; iter < MAX_ITER; iter++)
     {    
         kernelInitializePopulation<<<blocksNum, threadsNum>>>(devPopulation);  
@@ -231,3 +229,4 @@ extern "C" void cuda_de(float *population, float* evaluation)
     cudaFree(devMutants);
     cudaFree(devIndexMutation);
 }
+       
