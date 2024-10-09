@@ -188,25 +188,21 @@ extern "C" void cuda_de(float *population, float* evaluation)
 {
     int size = NUM_OF_POPULATION * NUM_OF_DIMENSIONS;
    
-    // declare all the arrays on the device
     float *devPopulation;
     float *devEval;
     float *devMutants;
     int *devIndexMutation;
     float temp[NUM_OF_DIMENSIONS];
        
-    // Memory allocation
     cudaMalloc((void**)&devPopulation, sizeof(float) * size);
     cudaMalloc((void**)&devEval, sizeof(float) * NUM_OF_POPULATION);
     cudaMalloc((void**)&devMutants, sizeof(float) * size);
     cudaMalloc((void**)&devIndexMutation, sizeof(int) * NUM_OF_POPULATION * 3);
 
-    // Thread & Block number
     int threadsNum = 256;
     int blocksNum = (NUM_OF_POPULATION + threadsNum - 1) / threadsNum;
     int sharedMemSize = threadsNum * NUM_OF_DIMENSIONS * 3 * sizeof(float);
    
-    // Copy particle datas from host to device
     cudaMemcpy(devPopulation, population, sizeof(float) * size, cudaMemcpyHostToDevice);
     cudaMemcpy(devEval, evaluation, sizeof(float) * NUM_OF_POPULATION, cudaMemcpyHostToDevice);
 
