@@ -110,28 +110,6 @@ __global__ void kernelEvaluerPopulationInitiale(float *population, float *evalua
     evaluation[i / NUM_OF_DIMENSIONS] = device_fitness_function(tempParticle);
 }
 
-__global__ void kernelEvaluerPopulation(float *oldPopulation, float *mutatedPopulation, float *newPopulation) {    
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    // avoid an out of bound for the array
-    if (i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0)
-        return;
-
-    for (int j = 0; j < NUM_OF_DIMENSIONS; j++) {
-        tempParticleOld[j] = oldPopulation[i + j];
-        tempParticleMutation[j] = mutatedPopulation[i + j];
-    }
-
-    if (fitness_function(tempParticleOld) > fitness_function(tempParticleMutation)) {
-        for (int j = 0; j < NUM_OF_DIMENSIONS; j++) {
-            newPopulation[i + j] = tempParticleOld[j];
-        }
-    } else {
-        for (int j = 0; j < NUM_OF_DIMENSIONS; j++) {
-            newPopulation[i + j] = tempParticleMutation[j];
-        }
-    }
-}
-
 /**
  * Initalise un état curandState
  * 
