@@ -14,7 +14,7 @@
 3: Shifted Griewank's Function
 4: Shifted Sphere's Function
 */
-const int SELECTED_OBJ_FUNC = 0;
+const int SELECTED_OBJ_FUNC = 1;
 
 
 // =====    DE  =====
@@ -24,6 +24,7 @@ const int NUM_OF_DIMENSIONS = 3;
 const float CR = 0.5;   
 const int NUM_OF_PARTICLES = 512;
 const int NUM_OF_POPULATION = 512;
+const int NUM_OF_DIMENSIONS = 10;
 
 const int MAX_ITER = NUM_OF_DIMENSIONS * pow(10, 4);
 
@@ -33,6 +34,8 @@ const float OMEGA = 0.5;
 const float c1 = 1.5;
 const float c2 = 1.5;
 const float phi = 3.1415;
+const float F = 0.5f; 
+
 
 
 // Les 3 fonctions très utiles
