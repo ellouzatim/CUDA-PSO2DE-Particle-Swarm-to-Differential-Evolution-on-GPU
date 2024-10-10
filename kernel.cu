@@ -234,7 +234,7 @@ __global__ void kernelDEMutation(float *individuals, int *indexMutation, float *
 
 __global__ void kernelEvaluerPopulation(float *oldPopulation, float *mutatedPopulation, float *newPopulation) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    // avoid an out of bound for the array
+    // avoid an out of bound for the array
     if (i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0)
         return;
 
@@ -243,7 +243,7 @@ __global__ void kernelEvaluerPopulation(float *oldPopulation, float *mutatedPopu
         tempParticleMutation[j] = mutatedPopulation[i + j];
     }
 
-    if (fitness_function(tempParticleOld) > fitness_function(tempParticleMutation)) {
+    if (device_fitness_function(tempParticleOld) > device_fitness_function(tempParticleMutation)) {
         for (int j = 0; j < NUM_OF_DIMENSIONS; j++) {
             newPopulation[i + j] = tempParticleOld[j];
         }
@@ -283,7 +283,7 @@ extern "C" void cuda_de(float *population, float* evaluation)
     for (int iter = 0; iter < MAX_ITER; iter++)
     {    
         kernelInitializePopulation<<<blocksNum, threadsNum>>>(devPopulation, dstates);  
-        kernelEvaluerPopulation<<<blocksNum, threadsNum>>>(devPopulation, devEval);
+        kernelEvaluerPopulationInitiale<<<blocksNum, threadsNum>>>(devPopulation, devEval);
 
         unsigned long long seed = time(NULL);
         setupCurand<<<blocksNum, threadsNum>>>(dstates, seed);
