@@ -29,6 +29,8 @@ const int MAX_ITER = NUM_OF_DIMENSIONS * pow(10, 4);
 const float START_RANGE_MIN = -5.12f;
 const float START_RANGE_MAX = 5.12f;
 const float F = 0.5f; 
+const float phi = 3.14159265358979323846f;
+
 
 
 
