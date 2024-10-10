@@ -9,6 +9,9 @@
 __device__ float tempParticle[NUM_OF_DIMENSIONS];
 __device__ float tempParticle2[NUM_OF_DIMENSIONS];
 
+__device__ float tempParticleOld[NUM_OF_DIMENSIONS];
+__device__ float tempParticleMutation[NUM_OF_DIMENSIONS];
+
 
 /* Objective function
 0: Levy 3-dimensional
