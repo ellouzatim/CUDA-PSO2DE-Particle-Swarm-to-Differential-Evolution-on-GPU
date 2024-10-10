@@ -119,7 +119,7 @@ __global__ void kernelEvaluerPopulationInitiale(float *population, float *evalua
 __global__ void setupCurand(curandState *states, unsigned long long seed) 
 {
     int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < NUM_OF_PARTICLES || i % NUM_OF_DIMENSIONS != 0) {
+    if (i < NUM_OF_POPULATION || i % NUM_OF_DIMENSIONS != 0) {
         curand_init(seed, i, 0, &states[i]);
     }
 }
@@ -142,18 +142,18 @@ __global__ void kernelPrepareMutation(int *indexMutation, curandState *states)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     
-    if(i >= NUM_OF_PARTICLES || i % NUM_OF_DIMENSIONS != 0)
+    if(i >= NUM_OF_POPULATION || i % NUM_OF_DIMENSIONS != 0)
         return;
 
     int offsetIndividu = i / NUM_OF_DIMENSIONS;
     int offsetIndexMutation = offsetIndividu * 3;
 
     curandState localState = states[offsetIndividu];
-    int used[NUM_OF_PARTICLES] = {0};
+    int used[NUM_OF_POPULATION] = {0};
 
     int count = 0;
     while (count < 3) {
-        int randomIdx = curand(&localState) % NUM_OF_PARTICLES;
+        int randomIdx = curand(&localState) % NUM_OF_POPULATION;
         if (randomIdx != offsetIndividu && !used[randomIdx]) {
             indexMutation[offsetIndexMutation + count] = randomIdx;
             used[randomIdx] = 1;
@@ -206,7 +206,7 @@ __global__ void kernelDEMutation(float *individuals, int *indexMutation, float *
     extern __shared__ float sharedMem[];
     
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if(i >= NUM_OF_PARTICLES * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0) return;
+    if(i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0) return;
     
     int r_base = indexMutation[i * 3];
     int r_1 = indexMutation[i * 3 + 1];
