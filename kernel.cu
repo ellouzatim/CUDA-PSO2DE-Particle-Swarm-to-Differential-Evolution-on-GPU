@@ -89,15 +89,16 @@ __device__ float device_getRandom(float low, float high, curandState *states)
     return low + (high - low) * curand_uniform(&states[i]);
 }
 
-__global__ void kernelInitializePopulation(float *population, curandState *states)
+
+__global__ void kernelInitializePopulation(float *population)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
+    // avoid an out of bound for the array
     if(i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS)
         return;
-    
-    int particleIdx = i / NUM_OF_DIMENSIONS;
-    population[i] = device_getRandom(START_RANGE_MIN, START_RANGE_MAX, &states[particleIdx]);
+    population[i] = getRandom(START_RANGE_MIN,START_RANGE_MAX);
 }
+
 
 __global__ void kernelEvaluerPopulationInitiale(float *population, float *evaluation)
 {
@@ -124,13 +125,6 @@ __global__ void setupCurand(curandState *states, unsigned long long seed)
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     if (i < NUM_OF_POPULATION || i % NUM_OF_DIMENSIONS != 0) {
         curand_init(seed, i, 0, &states[i]);
-    }
-}
-
-
-__global__ void generateRandomK(int* d_k, curandState* states, int max_value) {
-    if (threadIdx.x == 0 && blockIdx.x == 0) {
-        *d_k = (int)(curand_uniform(&states[0]) * max_value);
     }
 }
 
@@ -232,7 +226,7 @@ __global__ void kernelDEMutation(float *individuals, int *indexMutation, float *
     }
 }
 
-__global__ void kernelEvaluerPopulation(float *oldPopulation, float *mutatedPopulation, float *newPopulation) {
+__global__ void kernelEvaluerPopulation(float *oldPopulation, float *mutatedPopulation) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     // avoid an out of bound for the array
     if (i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0)
@@ -243,13 +237,9 @@ __global__ void kernelEvaluerPopulation(float *oldPopulation, float *mutatedPopu
         tempParticleMutation[j] = mutatedPopulation[i + j];
     }
 
-    if (device_fitness_function(tempParticleOld) > device_fitness_function(tempParticleMutation)) {
+    if (!(device_fitness_function(tempParticleOld) > device_fitness_function(tempParticleMutation))) {
         for (int j = 0; j < NUM_OF_DIMENSIONS; j++) {
-            newPopulation[i + j] = tempParticleOld[j];
-        }
-    } else {
-        for (int j = 0; j < NUM_OF_DIMENSIONS; j++) {
-            newPopulation[i + j] = tempParticleMutation[j];
+            oldPopulation[i + j] = tempParticleMutation[j];
         }
     }
 }
@@ -263,14 +253,12 @@ extern "C" void cuda_de(float *population, float* evaluation)
     float *devMutants;
     int *devIndexMutation;
     curandState *dstates;
-    int *d_k;  
        
     cudaMalloc((void**)&devPopulation, sizeof(float) * size);
     cudaMalloc((void**)&devEval, sizeof(float) * NUM_OF_POPULATION);
     cudaMalloc((void**)&devMutants, sizeof(float) * size);
     cudaMalloc((void**)&devIndexMutation, sizeof(int) * NUM_OF_POPULATION * 3);
     cudaMalloc((void**)&dstates, sizeof(curandState) * NUM_OF_POPULATION);
-    cudaMalloc((void**)&d_k, sizeof(int));  
 
     int threadsNum = 256;
     int blocksNum = (NUM_OF_POPULATION + threadsNum - 1) / threadsNum;
@@ -282,7 +270,8 @@ extern "C" void cuda_de(float *population, float* evaluation)
   
     for (int iter = 0; iter < MAX_ITER; iter++)
     {    
-        kernelInitializePopulation<<<blocksNum, threadsNum>>>(devPopulation, dstates);  
+        kernelInitializePopulation<<<blocksNum, threadsNum>>>(devPopulation);  
+
         kernelEvaluerPopulationInitiale<<<blocksNum, threadsNum>>>(devPopulation, devEval);
 
         unsigned long long seed = time(NULL);
@@ -290,15 +279,13 @@ extern "C" void cuda_de(float *population, float* evaluation)
         kernelPrepareMutation<<<blocksNum, threadsNum>>>(devIndexMutation, dstates);
 
         kernelDEMutation<<<blocksNum, threadsNum, sharedMemSize>>>(devPopulation, devIndexMutation, devMutants, F);
-
-        generateRandomK<<<1, 1>>>(d_k, dstates, NUM_OF_DIMENSIONS);
         
-        int h_k;
-        cudaMemcpy(&h_k, d_k, sizeof(int), cudaMemcpyDeviceToHost);
+        setupCurand<<<blocksNum, threadsNum>>>(dstatesCrossover, seed);
+        int k = getRandom(0, NUM_OF_DIMENSIONS - 1);
+        kernelCrossoverDE<<<blocksNum, threadsNum>>>(devPopulation, devMutants, k, dstatesCrossover);
 
-        kernelCrossoverDE<<<blocksNum, threadsNum>>>(devPopulation, devMutants, h_k, dstates);
-                
         // Ajoutez ici le kernel de sélection si nécessaire
+        kernelEvaluerPopulation<<<blocksNum, threadsNum>>>(devPopulation, devMutants);
     }
 
     cudaMemcpy(population, devPopulation, sizeof(float) * size, cudaMemcpyDeviceToHost);
@@ -309,5 +296,4 @@ extern "C" void cuda_de(float *population, float* evaluation)
     cudaFree(devMutants);
     cudaFree(devIndexMutation);
     cudaFree(dstates);
-    cudaFree(d_k);  
 }
