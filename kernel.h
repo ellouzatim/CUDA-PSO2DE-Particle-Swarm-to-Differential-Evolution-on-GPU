@@ -39,4 +39,4 @@ float getRandom(float low, float high);
 float getRandomClamped();
 float host_fitness_function(float x[]);
 
-extern "C" void cuda_de(float *population, float* evaluation, int *t);
+extern "C" void cuda_de(float *population, float* evaluation);

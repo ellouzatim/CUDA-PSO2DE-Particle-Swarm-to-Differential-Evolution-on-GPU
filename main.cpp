@@ -13,15 +13,13 @@ int main(int argc, char** argv) {
 
     printf("Type \t Time \t \t Minimum\n");
 
-    int tt = 0;
 
     srand((unsigned) time(NULL));
     clock_t begin = clock();
-    cuda_de(population, gBest, &tt);    
+    cuda_de(population, gBest);    
     clock_t end = clock();
     printf("GPU \t ");
     printf("%10.3lf \t", (double)(end - begin) / CLOCKS_PER_SEC);
-    printf("%d\n", tt);
     printf(" %f\n", host_fitness_function(gBest));
 
     return 0;
