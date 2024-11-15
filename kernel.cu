@@ -145,7 +145,7 @@ __global__ void kernelPrepareMutation(int *indexMutation, curandState *states) {
     }
 }
 
-__global__ void kernelDEMutation(float *individuals, int *indexMutation, float *mutants, float F) {
+__global__ void kernelDEMutation(float *population, int *indexMutation, float *mutants, float F) {
     extern __shared__ float sharedMem[];
 
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -160,9 +160,9 @@ __global__ void kernelDEMutation(float *individuals, int *indexMutation, float *
     float *x_r2 = &x_r1[NUM_OF_DIMENSIONS];
 
     for (int d = 0; d < NUM_OF_DIMENSIONS; d++) {
-        base[d] = individuals[r_base * NUM_OF_DIMENSIONS + d];
-        x_r1[d] = individuals[r_1 * NUM_OF_DIMENSIONS + d];
-        x_r2[d] = individuals[r_2 * NUM_OF_DIMENSIONS + d];
+        base[d] = population[r_base * NUM_OF_DIMENSIONS + d];
+        x_r1[d] = population[r_1 * NUM_OF_DIMENSIONS + d];
+        x_r2[d] = population[r_2 * NUM_OF_DIMENSIONS + d];
     }
 
     __syncthreads();
@@ -177,13 +177,13 @@ __global__ void kernelDEMutation(float *individuals, int *indexMutation, float *
  * Update the values of the param mutated_individuals with the crossover
  *
  * Params :
- *  - previous_individuals : current population
- *  - mutated_individuals : population with mutation
+ *  - population : current population
+ *  - mutatedPopulation : population with mutation
  *  - k : random [0, D-1], D = dimension (generated each iteartion)
  */
 __global__ void kernelCrossoverDE(
-    float *previous_individuals,
-    float *mutated_individuals,
+    float *population,
+    float *mutatedPopulation,
     int k,
     curandState *states
 ) {
@@ -204,24 +204,24 @@ __global__ void kernelCrossoverDE(
     // cf. crossover, equation (2) in the paper
     if (!(randj <= CR || j == k)) {
         // <=> vector U(i,j) in the paper
-        mutated_individuals[i] = previous_individuals[i];
+        mutatedPopulation[i] = population[i]; // trials vector == mutatedPopulation
     }
 }
 
-__global__ void kernelEvaluerPopulation(float *oldPopulation, float *mutatedPopulation) {
+__global__ void kernelEvaluerPopulation(float *population, float *mutatedPopulation) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     // avoid an out of bound for the array
     if (i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0)
         return;
 
     for (int j = 0; j < NUM_OF_DIMENSIONS; j++) {
-        tempParticleOld[j] = oldPopulation[i + j];
-        tempParticleMutation[j] = mutatedPopulation[i + j];
+        tempParticle[j] = population[i + j];
+        tempParticleMutation[j] = mutatedPopulation[i + j]; // trials vectors
     }
 
-    if (!(device_fitness_function(tempParticleOld) > device_fitness_function(tempParticleMutation))) {
+    if (!(device_fitness_function(tempParticle) > device_fitness_function(tempParticleMutation))) {
         for (int j = 0; j < NUM_OF_DIMENSIONS; j++) {
-            oldPopulation[i + j] = tempParticleMutation[j];
+            population[i + j] = tempParticleMutation[j];
         }
     }
 }
@@ -235,18 +235,18 @@ extern "C" void cuda_de(float *population, float *gBest) {
     float *devMutants;
     int *devIndexMutation;
     float evaluation[NUM_OF_POPULATION];  // float evaluation[NUM_OF_POPULATION * NUM_OF_DIMENSIONS]; /!\incohérence avec devEval qui est seulement de taille NUM_OF_POPULATION
-    curandState *dstatesInitPop;
-    curandState *dstatesPrepareMutation;
-    curandState *dstatesCrossover;
+    curandState *devStatesInitPop;
+    curandState *devStatesPrepareMutation;
+    curandState *devStatesCrossover;
 
 
     cudaMalloc((void**)&devPopulation, sizeof(float) * size);
     cudaMalloc((void**)&devEval, sizeof(float) * NUM_OF_POPULATION);
     cudaMalloc((void**)&devMutants, sizeof(float) * size);
     cudaMalloc((void**)&devIndexMutation, sizeof(int) * NUM_OF_POPULATION * 3);
-    cudaMalloc((void**)&dstatesInitPop, sizeof(curandState) * NUM_OF_POPULATION);
-    cudaMalloc((void**)&dstatesPrepareMutation, sizeof(curandState) * NUM_OF_POPULATION);
-    cudaMalloc((void**)&dstatesCrossover, sizeof(curandState) * size);
+    cudaMalloc((void**)&devStatesInitPop, sizeof(curandState) * NUM_OF_POPULATION);
+    cudaMalloc((void**)&devStatesPrepareMutation, sizeof(curandState) * NUM_OF_POPULATION);
+    cudaMalloc((void**)&devStatesCrossover, sizeof(curandState) * size);
     // cudaMalloc((void**)&devGBest, sizeof(float) * NUM_OF_DIMENSIONS);
 
     int threadsNum = 256;
@@ -259,8 +259,8 @@ extern "C" void cuda_de(float *population, float *gBest) {
 
 
     // Initialisation
-    setupCurand<<<blocksNum, threadsNum>>>(dstatesInitPop, time(NULL));
-    kernelInitializePopulation<<<blocksNum, threadsNum>>>(devPopulation, dstatesInitPop);
+    setupCurand<<<blocksNum, threadsNum>>>(devStatesInitPop, time(NULL));
+    kernelInitializePopulation<<<blocksNum, threadsNum>>>(devPopulation, devStatesInitPop);
     kernelEvaluerPopulationInitiale<<<blocksNum, threadsNum>>>(devPopulation, devEval); // /!\ ne sert à rien pour l'instant
 
     for (int i = 0; i < size; i += NUM_OF_DIMENSIONS)
@@ -271,15 +271,15 @@ extern "C" void cuda_de(float *population, float *gBest) {
         float *tempPopulation = new float[size];  //tableau temporaire pour toute la population
         float tempIndividual[NUM_OF_DIMENSIONS]; //pour un individu
 
-        setupCurand<<<blocksNum, threadsNum>>>(dstatesPrepareMutation, time(NULL));
+        setupCurand<<<blocksNum, threadsNum>>>(devStatesPrepareMutation, time(NULL));
         
-        kernelPrepareMutation<<<blocksNum, threadsNum>>>(devIndexMutation, dstatesPrepareMutation);
+        kernelPrepareMutation<<<blocksNum, threadsNum>>>(devIndexMutation, devStatesPrepareMutation);
         
         kernelDEMutation<<<blocksNum, threadsNum, sharedMemSize>>>(devPopulation, devIndexMutation, devMutants, F);
         
         int r = getRandom(0, NUM_OF_DIMENSIONS - 1);
-        setupCurand<<<blocksNum, threadsNum>>>(dstatesCrossover, time(NULL));
-        kernelCrossoverDE<<<blocksNum, threadsNum>>>(devPopulation, devMutants, r, dstatesCrossover);
+        setupCurand<<<blocksNum, threadsNum>>>(devStatesCrossover, time(NULL));
+        kernelCrossoverDE<<<blocksNum, threadsNum>>>(devPopulation, devMutants, r, devStatesCrossover);
 
         // Ajoutez ici le kernel de sélection si nécessaire
         kernelEvaluerPopulation<<<blocksNum, threadsNum>>>(devPopulation, devMutants);
@@ -305,7 +305,8 @@ extern "C" void cuda_de(float *population, float *gBest) {
     cudaFree(devEval);
     cudaFree(devMutants);
     cudaFree(devIndexMutation);
-    cudaFree(dstatesPrepareMutation);
-    cudaFree(dstatesCrossover);
+    cudaFree(devStatesInitPop);
+    cudaFree(devStatesPrepareMutation);
+    cudaFree(devStatesCrossover);
     //cudaFree(devGBest);
 }
