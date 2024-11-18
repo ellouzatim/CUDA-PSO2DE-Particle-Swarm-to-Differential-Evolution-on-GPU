@@ -209,6 +209,9 @@ extern "C" void cuda_de(float *population, float *gBest) {
    printf("Fitness initiale: %f\n", bestFitness);
 
    // Boucle principale DE
+    const float EPSILON = 1e-6;  // Tolerance for considering we've reached the optimum
+    const float GLOBAL_OPTIMUM = -330.0f;  // Global optimum for Shifted Rastigrin
+
     for(int iter = 0; iter < MAX_ITER; iter++) {
         // Génération des indices pour la mutation
         setupCurand<<<blocksPerGrid, threadsPerBlock>>>(devStatesMutation, time(NULL) + iter);
@@ -231,22 +234,22 @@ extern "C" void cuda_de(float *population, float *gBest) {
             float currentFitness = host_fitness_function(currentIndividual);
             
             if(currentFitness < bestFitness) {
-                    bestFitness = currentFitness;
-                    memcpy(gBest, currentIndividual, NUM_OF_DIMENSIONS * sizeof(float));
-                    printf("Iteration %d: Nouvelle meilleure fitness = %f\n", iter, bestFitness);
-                    printf("Nouvelle meilleure position: [");
-                    for(int d = 0; d < NUM_OF_DIMENSIONS; d++) {
-                        printf("%.6f", gBest[d]);
-                        if(d < NUM_OF_DIMENSIONS - 1) printf(", ");
-                    }
-                    printf("]\n");
+                bestFitness = currentFitness;
+                memcpy(gBest, currentIndividual, NUM_OF_DIMENSIONS * sizeof(float));
+                printf("Iteration %d: Nouvelle meilleure fitness = %f\n", iter, bestFitness);
+                printf("Nouvelle meilleure position: [");
+                for(int d = 0; d < NUM_OF_DIMENSIONS; d++) {
+                    printf("%.6f", gBest[d]);
+                    if(d < NUM_OF_DIMENSIONS - 1) printf(", ");
+                }
+                printf("]\n");
             }
         }
         
-        // Affichage périodique
-        if(iter % 1000 == 0) {
-            printf("Iteration %d/%d (%.2f%%)\n", iter, MAX_ITER, (float)iter/MAX_ITER * 100);
-            printf("Meilleure fitness actuelle: %f\n", bestFitness);
+        // Condition d'arrêt si on est proche de l'optimum global
+        if(fabs(bestFitness - GLOBAL_OPTIMUM) < EPSILON) {
+            printf("\nOptimum global atteint à l'iteration %d avec fitness = %f\n", iter, bestFitness);
+            break;
         }
     }
 
