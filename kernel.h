@@ -5,6 +5,7 @@
 #include <iostream>
 #include <string>
 
+#define DEBUG_PRINT 1  // Mettre à 0 pour désactiver le débogage
 
 // Constantes
 /* Objective function
@@ -14,29 +15,27 @@
 3: Shifted Griewank's Function
 4: Shifted Sphere's Function
 */
-const int SELECTED_OBJ_FUNC = 1;
+// const int SELECTED_OBJ_FUNC = 1;
 
 
-// =====    DE  =====
-// Number of dimension
-// Crossover rate for DE
-const float CR = 0.5;   
-const int NUM_OF_POPULATION = 512;
+// Configuration DE
 const int NUM_OF_DIMENSIONS = 10;
-
+const int NUM_OF_POPULATION = 512;
+const float CR = 0.3f;  // Taux de croisement
+const float F = 0.5f;   // Facteur de mutation
 const int MAX_ITER = NUM_OF_DIMENSIONS * pow(10, 4);
-
+// const float START_RANGE_MIN = -600.0f;
+// const float START_RANGE_MAX = 600.0f;
 const float START_RANGE_MIN = -5.12f;
 const float START_RANGE_MAX = 5.12f;
-const float F = 0.5f; 
-const float phi = 3.14159265358979323846f;
+const float phi = 3.14f;
 
+// Sélection de la fonction objective (1 pour Shifted Rastigrin)
+const int SELECTED_OBJ_FUNC = 1;
 
-
-
-// Les 3 fonctions très utiles
+// Fonctions utiles
 float getRandom(float low, float high);
 float getRandomClamped();
 float host_fitness_function(float x[]);
 
-extern "C" void cuda_de(float *population, float* evaluation);
+extern "C" void cuda_de(float *population, float* gBest);

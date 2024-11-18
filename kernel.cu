@@ -20,293 +20,246 @@ __device__ float tempParticleMutation[NUM_OF_DIMENSIONS];
  * Runs on the GPU, called from the GPU.
 */
 
+// Kernel pour la fonction fitness sur GPU
 __device__ float device_fitness_function(float x[]) {
     float res = 0;
-    float somme = 0;
-    float produit = 0;
-
+    
     switch (SELECTED_OBJ_FUNC) {
-        case 0: {
-            float y1 = 1 + (x[0] - 1) / 4;
-            float yn = 1 + (x[NUM_OF_DIMENSIONS - 1] - 1) / 4;
-
-            res += pow(sin(phi * y1), 2);
-
-            for (int i = 0; i < NUM_OF_DIMENSIONS - 1; i++) {
-                float y = 1 + (x[i] - 1) / 4;
-                float yp = 1 + (x[i + 1] - 1) / 4;
-                res += pow(y - 1, 2) * (1 + 10 * pow(sin(phi * yp), 2)) + pow(yn - 1, 2);
-            }
-            break;
-        }
         case 1: {
             for (int i = 0; i < NUM_OF_DIMENSIONS; i++) {
                 float zi = x[i] - 0;
-                res += pow(zi, 2) - 10 * cos(2 * phi * zi) + 10;
+                res += pow(zi, 2) - 10*cos(2*M_PI*zi) + 10;
             }
             res -= 330;
             break;
         }
-        case 2:
-            for (int i = 0; i < NUM_OF_DIMENSIONS - 1; i++) {
-                float zi = x[i] - 0 + 1;
-                float zip1 = x[i + 1] - 0 + 1;
-                res += 100 * (pow(pow(zi, 2) - zip1, 2)) + pow(zi - 1, 2);
-            }
-            res += 390;
-            break;
-        case 3:
-            for (int i = 0; i < NUM_OF_DIMENSIONS; i++) {
-                float zi = x[i] - 0;
-                somme += pow(zi, 2) / 4000;
-                produit *= cos(zi / pow(i + 1, 0.5));
-            }
-            res = somme - produit + 1 - 180;
-            break;
-        case 4:
-            for (int i = 0; i < NUM_OF_DIMENSIONS; i++) {
-                float zi = x[i] - 0;
-                res += pow(zi, 2);
-            }
-            res -= 450;
-            break;
     }
-
     return res;
 }
 
+// Initialisation des états random
+__global__ void setupCurand(curandState *state, unsigned long seed) {
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idx < NUM_OF_POPULATION) {
+        curand_init(seed + idx, 0, 0, &state[idx]);
+    }
+}
+
+// Initialisation de la population
+
 __global__ void kernelInitializePopulation(float *population, curandState *states) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    // avoid an out of bound for the array
-    if (i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS)
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS)
         return;
 
-    curandState localState = states[i / NUM_OF_DIMENSIONS];
-    // random entre
-    population[i] = START_RANGE_MIN + curand_uniform(&localState) * (START_RANGE_MAX - START_RANGE_MIN);
+    int individual_idx = idx / NUM_OF_DIMENSIONS;
+    curandState localState = states[individual_idx];
+   
+    // Générer une valeur aléatoire
+    float random_value = START_RANGE_MIN +
+        curand_uniform(&localState) * (START_RANGE_MAX - START_RANGE_MIN);
+   
+    // Sauvegarder l'état mis à jour
+    states[individual_idx] = localState;
+   
+    // Sauvegarder la valeur générée
+    population[idx] = random_value;
 }
 
-__global__ void kernelEvaluerPopulationInitiale(float *population, float *evaluation) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0) // /!\i >= NUM_OF_POPULATION  est trop petit
-        return;
-
-    float tempParticle[NUM_OF_DIMENSIONS];
-    for (int j = 0; j < NUM_OF_DIMENSIONS; j++) {
-        tempParticle[j] = population[i + j];
-    }
-    evaluation[i / NUM_OF_DIMENSIONS] = device_fitness_function(tempParticle);
-}
-
-/**
- * Initialize a curandState
- *
- * @param states Array to store curandState objects
- * @param seed Seed for random number generation
- */
-
-__global__ void setupCurand(curandState *states, unsigned long long seed) {
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < NUM_OF_POPULATION || i % NUM_OF_DIMENSIONS != 0) {
-        curand_init(seed, i, 0, &states[i]);
-    }
-}
-
-/**
- * Randomly create an array of indices for mutation.
- * For each individual, generate 3 distinct indices that are different from i, within the range 0 to NUM_OF_POPULATION.
- *
- * @param indexMutation Integer array to store the indices
- * @param states State array for random generation
- */
-
+// Préparation des indices pour la mutation
 __global__ void kernelPrepareMutation(int *indexMutation, curandState *states) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (i >= NUM_OF_POPULATION || i % NUM_OF_DIMENSIONS != 0)
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= NUM_OF_POPULATION)
         return;
+        
+    curandState localState = states[idx];
 
-    int offsetIndividu = i / NUM_OF_DIMENSIONS;
-    int offsetIndexMutation = offsetIndividu * 3;
-
-    curandState localState = states[offsetIndividu];
-    int used[NUM_OF_POPULATION] = {0};
-
+    // Sélectionner 3 indices distincts différents de idx
+    int indices[3];
     int count = 0;
-    int attempts = 0;
-    while (count < 3 && attempts < NUM_OF_POPULATION * 2) {
-        unsigned int randomIdx = curand(&localState) % NUM_OF_POPULATION;
-        if (randomIdx != offsetIndividu && !used[randomIdx]) {
-            indexMutation[offsetIndexMutation + count] = randomIdx;
-            used[randomIdx] = 1;
-            count++;
-            attempts++;
+    
+    while(count < 3) {
+        int randIdx = curand(&localState) % NUM_OF_POPULATION;
+        if(randIdx != idx) {
+            bool isDuplicate = false;
+            for(int j = 0; j < count; j++) {
+                if(indices[j] == randIdx) {
+                    isDuplicate = true;
+                    break;
+                }
+            }
+            if(!isDuplicate) {
+                indices[count] = randIdx;
+                count++;
+            }
         }
     }
+    
+    indexMutation[idx * 3] = indices[0];
+    indexMutation[idx * 3 + 1] = indices[1];
+    indexMutation[idx * 3 + 2] = indices[2];
+    
+    states[idx] = localState;
 }
 
-__global__ void kernelDEMutation(float *population, int *indexMutation, float *mutants, float F) {
-    extern __shared__ float sharedMem[];
-
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0) return;
-
-    int r_base = indexMutation[i * 3];
-    int r_1 = indexMutation[i * 3 + 1];
-    int r_2 = indexMutation[i * 3 + 2];
-
-    float *base = &sharedMem[threadIdx.x * NUM_OF_DIMENSIONS * 3];
-    float *x_r1 = &base[NUM_OF_DIMENSIONS];
-    float *x_r2 = &x_r1[NUM_OF_DIMENSIONS];
-
-    for (int d = 0; d < NUM_OF_DIMENSIONS; d++) {
-        base[d] = population[r_base * NUM_OF_DIMENSIONS + d];
-        x_r1[d] = population[r_1 * NUM_OF_DIMENSIONS + d];
-        x_r2[d] = population[r_2 * NUM_OF_DIMENSIONS + d];
+// Mutation DE
+__global__ void kernelDEMutation(float *population, int *indexMutation, float *mutants) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= NUM_OF_POPULATION)
+        return;
+        
+    int r1 = indexMutation[idx * 3];
+    int r2 = indexMutation[idx * 3 + 1];
+    int r3 = indexMutation[idx * 3 + 2];
+    
+    for(int j = 0; j < NUM_OF_DIMENSIONS; j++) {
+        float base = population[r1 * NUM_OF_DIMENSIONS + j];
+        float diff = population[r2 * NUM_OF_DIMENSIONS + j] - 
+                    population[r3 * NUM_OF_DIMENSIONS + j];
+        
+        float mutated = base + F * diff;
+        
+        // Borner les valeurs
+        if(mutated > START_RANGE_MAX) mutated = START_RANGE_MAX;
+        if(mutated < START_RANGE_MIN) mutated = START_RANGE_MIN;
+        
+        mutants[idx * NUM_OF_DIMENSIONS + j] = mutated;
     }
 
-    __syncthreads();
-
-    for (int d = 0; d < NUM_OF_DIMENSIONS; d++) {
-        mutants[i * NUM_OF_DIMENSIONS + d] = base[d] + F * (x_r1[d] - x_r2[d]);
-    }
+    // if (idx == 0) {
+    // printf("\n=== Mutation de l'individu 0 ===\n");
+    // printf("r1=%d, r2=%d, r3=%d\n", r1, r2, r3);
+    // printf("Position originale: ");
+    // for(int j = 0; j < NUM_OF_DIMENSIONS; j++) {
+    //     printf("%.2f ", population[idx * NUM_OF_DIMENSIONS + j]);
+    // }
+    // printf("\nPosition après mutation: ");
+    // for(int j = 0; j < NUM_OF_DIMENSIONS; j++) {
+    //     printf("%.2f ", mutants[idx * NUM_OF_DIMENSIONS + j]);
+    // }
+    // printf("\n");
+// }
 }
 
-/**
- * Crossover DE
- * Update the values of the param mutated_individuals with the crossover
- *
- * Params :
- *  - population : current population
- *  - mutatedPopulation : population with mutation
- *  - k : random [0, D-1], D = dimension (generated each iteartion)
- */
-__global__ void kernelCrossoverDE(
-    float *population,
-    float *mutatedPopulation,
-    int k,
-    curandState *states
-) {
-    // id du processus
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-    // avoid an out of bound for the array
-    if (i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS)
+// Croisement DE
+__global__ void kernelCrossoverDE(float *population, float *mutants, 
+                                 int jrand, curandState *states) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= NUM_OF_POPULATION)
         return;
 
-    // individual : ceil(i / NUM_OF_DIMENSIONS), not useful to compute here
-
-    // j : current index the individual
-    int j = i % NUM_OF_DIMENSIONS;
-    curandState localState = states[i / NUM_OF_DIMENSIONS];
-    float randj = curand_uniform(&localState);
-
-    // cf. crossover, equation (2) in the paper
-    if (!(randj <= CR || j == k)) {
-        // <=> vector U(i,j) in the paper
-        mutatedPopulation[i] = population[i]; // trials vector == mutatedPopulation
-    }
-}
-
-__global__ void kernelEvaluerPopulation(float *population, float *mutatedPopulation) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    // avoid an out of bound for the array
-    if (i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS || i % NUM_OF_DIMENSIONS != 0)
-        return;
-
-    for (int j = 0; j < NUM_OF_DIMENSIONS; j++) {
-        tempParticle[j] = population[i + j];
-        tempParticleMutation[j] = mutatedPopulation[i + j]; // trials vectors
-    }
-
-    if (!(device_fitness_function(tempParticle) > device_fitness_function(tempParticleMutation))) {
-        for (int j = 0; j < NUM_OF_DIMENSIONS; j++) {
-            population[i + j] = tempParticleMutation[j];
+    curandState localState = states[idx];
+    
+    for(int j = 0; j < NUM_OF_DIMENSIONS; j++) {
+        float randj = curand_uniform(&localState);
+        if(randj < CR || j == jrand) {
+            population[idx * NUM_OF_DIMENSIONS + j] = 
+                mutants[idx * NUM_OF_DIMENSIONS + j]; 
         }
     }
+    // if (idx == 0) {
+    // printf("\n=== Croisement de l'individu 0 ===\n");
+    // printf("jrand=%d\n", jrand);
+    // printf("Position après croisement: ");
+    // for(int j = 0; j < NUM_OF_DIMENSIONS; j++) {
+    //     printf("%.2f ", population[idx * NUM_OF_DIMENSIONS + j]);
+    // }
+    // printf("\n");
+// }
+    
+    states[idx] = localState;
 }
 
 extern "C" void cuda_de(float *population, float *gBest) {
-    int size = NUM_OF_POPULATION * NUM_OF_DIMENSIONS;
+   // Allocation mémoire sur le device
+   float *devPopulation, *devMutants;
+   float *devEval;
+   int *devIndexMutation;
+   curandState *devStatesInit;
+   curandState *devStatesMutation;
+   curandState *devStatesCrossover;
+   
+   int size = NUM_OF_POPULATION * NUM_OF_DIMENSIONS;
+   
+   // Allocations CUDA
+   cudaMalloc((void**)&devPopulation, sizeof(float) * size);
+   cudaMalloc((void**)&devMutants, sizeof(float) * size);
+   cudaMalloc((void**)&devEval, sizeof(float) * NUM_OF_POPULATION);
+   cudaMalloc((void**)&devIndexMutation, sizeof(int) * NUM_OF_POPULATION * 3);
+   cudaMalloc((void**)&devStatesInit, sizeof(curandState) * NUM_OF_POPULATION);
+   cudaMalloc((void**)&devStatesMutation, sizeof(curandState) * NUM_OF_POPULATION);
+   cudaMalloc((void**)&devStatesCrossover, sizeof(curandState) * NUM_OF_POPULATION);
 
-    float *devPopulation;
-    float *devEval;
-    //float *devGBest; //not used
-    float *devMutants;
-    int *devIndexMutation;
-    float evaluation[NUM_OF_POPULATION];  // float evaluation[NUM_OF_POPULATION * NUM_OF_DIMENSIONS]; /!\incohérence avec devEval qui est seulement de taille NUM_OF_POPULATION
-    curandState *devStatesInitPop;
-    curandState *devStatesPrepareMutation;
-    curandState *devStatesCrossover;
+   // Configuration des kernels
+   int threadsPerBlock = 256;
+   int blocksPerGrid = (NUM_OF_POPULATION + threadsPerBlock - 1) / threadsPerBlock;
 
+   // Initialisation de la population
+   setupCurand<<<blocksPerGrid, threadsPerBlock>>>(devStatesInit, time(NULL));
+   kernelInitializePopulation<<<blocksPerGrid, threadsPerBlock>>>(devPopulation, devStatesInit);
+   cudaDeviceSynchronize();
 
-    cudaMalloc((void**)&devPopulation, sizeof(float) * size);
-    cudaMalloc((void**)&devEval, sizeof(float) * NUM_OF_POPULATION);
-    cudaMalloc((void**)&devMutants, sizeof(float) * size);
-    cudaMalloc((void**)&devIndexMutation, sizeof(int) * NUM_OF_POPULATION * 3);
-    cudaMalloc((void**)&devStatesInitPop, sizeof(curandState) * NUM_OF_POPULATION);
-    cudaMalloc((void**)&devStatesPrepareMutation, sizeof(curandState) * NUM_OF_POPULATION);
-    cudaMalloc((void**)&devStatesCrossover, sizeof(curandState) * size);
-    // cudaMalloc((void**)&devGBest, sizeof(float) * NUM_OF_DIMENSIONS);
+   // Copier la population initiale vers l'hôte pour initialiser gBest
+   cudaMemcpy(population, devPopulation, sizeof(float) * size, cudaMemcpyDeviceToHost);
+   
+   // Initialiser gBest avec le premier individu
+   float bestFitness = host_fitness_function(population);
+   memcpy(gBest, population, NUM_OF_DIMENSIONS * sizeof(float));
+   
+   printf("Fitness initiale: %f\n", bestFitness);
 
-    int threadsNum = 256;
-    int blocksNum = (NUM_OF_POPULATION + threadsNum - 1) / threadsNum;
-
-    size_t sharedMemSize = threadsNum * NUM_OF_DIMENSIONS * 3 * sizeof(float);
-
-    cudaMemcpy(devPopulation, population, sizeof(float) * size, cudaMemcpyHostToDevice);
-    //cudaMemcpy(devEval, evaluation, sizeof(float) * NUM_OF_POPULATION, cudaMemcpyHostToDevice); // /!\copie de données non initialisées vers le gpu 
-
-
-    // Initialisation
-    setupCurand<<<blocksNum, threadsNum>>>(devStatesInitPop, time(NULL));
-    kernelInitializePopulation<<<blocksNum, threadsNum>>>(devPopulation, devStatesInitPop);
-    kernelEvaluerPopulationInitiale<<<blocksNum, threadsNum>>>(devPopulation, devEval); // /!\ ne sert à rien pour l'instant
-
-    for (int i = 0; i < size; i += NUM_OF_DIMENSIONS)
-        gBest[i] = population[i];
-
-
-    for (int iter = 0; iter < MAX_ITER; iter++) {
-        float *tempPopulation = new float[size];  //tableau temporaire pour toute la population
-        float tempIndividual[NUM_OF_DIMENSIONS]; //pour un individu
-
-        setupCurand<<<blocksNum, threadsNum>>>(devStatesPrepareMutation, time(NULL));
+   // Boucle principale DE
+    for(int iter = 0; iter < MAX_ITER; iter++) {
+        // Génération des indices pour la mutation
+        setupCurand<<<blocksPerGrid, threadsPerBlock>>>(devStatesMutation, time(NULL) + iter);
+        kernelPrepareMutation<<<blocksPerGrid, threadsPerBlock>>>(devIndexMutation, devStatesMutation);
         
-        kernelPrepareMutation<<<blocksNum, threadsNum>>>(devIndexMutation, devStatesPrepareMutation);
+        // Mutation
+        kernelDEMutation<<<blocksPerGrid, threadsPerBlock>>>(devPopulation, devIndexMutation, devMutants);
         
-        kernelDEMutation<<<blocksNum, threadsNum, sharedMemSize>>>(devPopulation, devIndexMutation, devMutants, F);
+        // Croisement
+        int jrand = rand() % NUM_OF_DIMENSIONS;
+        setupCurand<<<blocksPerGrid, threadsPerBlock>>>(devStatesCrossover, time(NULL) + iter);
+        kernelCrossoverDE<<<blocksPerGrid, threadsPerBlock>>>(devPopulation, devMutants, jrand, devStatesCrossover);
         
-        int r = getRandom(0, NUM_OF_DIMENSIONS - 1);
-        setupCurand<<<blocksNum, threadsNum>>>(devStatesCrossover, time(NULL));
-        kernelCrossoverDE<<<blocksNum, threadsNum>>>(devPopulation, devMutants, r, devStatesCrossover);
-
-        // Ajoutez ici le kernel de sélection si nécessaire
-        kernelEvaluerPopulation<<<blocksNum, threadsNum>>>(devPopulation, devMutants);
+        // Évaluation et mise à jour de gBest
+        cudaMemcpy(population, devPopulation, sizeof(float) * size, cudaMemcpyDeviceToHost);
         
-        cudaMemcpy(tempPopulation, devPopulation, sizeof(float) * size, cudaMemcpyDeviceToHost);
-        
-        // compute current global best
-        for (int i = 0; i < size; i += NUM_OF_DIMENSIONS) {
-            for (int j = 0; j < NUM_OF_DIMENSIONS; j++) {
-                tempIndividual[j] = tempPopulation[i + j]; // nouvelle version qui utilise un tableau temporaire tempPopulation pour stocker devPopulation depuis le gpu car on ne peut pas accéder à devPopulation depuis le cpu
-            }
-            if (host_fitness_function(tempIndividual) < host_fitness_function(gBest)) {
-                for (int k = 0; k < NUM_OF_DIMENSIONS; k++)
-                    gBest[k] = tempIndividual[k];
+        // Vérifier chaque individu
+        for(int i = 0; i < NUM_OF_POPULATION; i++) {
+            float* currentIndividual = &population[i * NUM_OF_DIMENSIONS];
+            float currentFitness = host_fitness_function(currentIndividual);
+            
+            if(currentFitness < bestFitness) {
+                    bestFitness = currentFitness;
+                    memcpy(gBest, currentIndividual, NUM_OF_DIMENSIONS * sizeof(float));
+                    printf("Iteration %d: Nouvelle meilleure fitness = %f\n", iter, bestFitness);
+                    printf("Nouvelle meilleure position: [");
+                    for(int d = 0; d < NUM_OF_DIMENSIONS; d++) {
+                        printf("%.6f", gBest[d]);
+                        if(d < NUM_OF_DIMENSIONS - 1) printf(", ");
+                    }
+                    printf("]\n");
             }
         }
-        delete[] tempPopulation;
+        
+        // Affichage périodique
+        if(iter % 1000 == 0) {
+            printf("Iteration %d/%d (%.2f%%)\n", iter, MAX_ITER, (float)iter/MAX_ITER * 100);
+            printf("Meilleure fitness actuelle: %f\n", bestFitness);
+        }
     }
 
-    cudaMemcpy(population, devPopulation, sizeof(float) * size, cudaMemcpyDeviceToHost);
+   // Nettoyage
+   cudaFree(devPopulation);
+   cudaFree(devMutants);
+   cudaFree(devEval);
+   cudaFree(devIndexMutation);
+   cudaFree(devStatesInit);
+   cudaFree(devStatesMutation);
+   cudaFree(devStatesCrossover);
 
-    cudaFree(devPopulation);
-    cudaFree(devEval);
-    cudaFree(devMutants);
-    cudaFree(devIndexMutation);
-    cudaFree(devStatesInitPop);
-    cudaFree(devStatesPrepareMutation);
-    cudaFree(devStatesCrossover);
-    //cudaFree(devGBest);
+   printf("\n=== Résultats finaux ===\n");
+   printf("Meilleure fitness trouvée: %f\n", bestFitness);
+   printf("\n");
 }
