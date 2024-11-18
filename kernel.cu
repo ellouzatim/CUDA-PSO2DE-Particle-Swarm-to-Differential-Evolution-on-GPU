@@ -138,7 +138,7 @@ __global__ void setupCurand(curandState *states, unsigned long long seed) {
  * @param indexMutation Integer array to store the indices
  * @param states State array for random generation
  */
-
+/*
 __global__ void kernelPrepareMutation(int *indexMutation, curandState *states) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -163,6 +163,21 @@ __global__ void kernelPrepareMutation(int *indexMutation, curandState *states) {
         }
     }
 }
+*/
+
+__global__ void kernelPrepareMutation(int *indexMutation, curandState *states) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < NUM_OF_POPULATION) {
+        curandState state = states[idx];
+        indexMutation[idx * 3] = curand(&state) % NUM_OF_POPULATION;
+        indexMutation[idx * 3 + 1] = curand(&state) % NUM_OF_POPULATION;
+        indexMutation[idx * 3 + 2] = curand(&state) % NUM_OF_POPULATION;
+        states[idx] = state;
+    }
+}
+
+
+
 
 __global__ void kernelDEMutation(float *population, int *indexMutation, float *mutants, float F) {
     extern __shared__ float sharedMem[];
