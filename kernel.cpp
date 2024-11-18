@@ -32,7 +32,7 @@ float host_fitness_function(float x[]) {
                 float zi = x[i] - 0;
                 res += pow(zi, 2) - 10*cos(2*phi*zi) + 10;
             }
-            res -= 330;
+            res -= 0;
             break;
         }
         case 2:

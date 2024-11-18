@@ -47,24 +47,44 @@ __global__ void setupCurand(curandState *state, unsigned long seed) {
 
 // Initialisation de la population
 
+// 1. Modifier kernelInitializePopulation
 __global__ void kernelInitializePopulation(float *population, curandState *states) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS)
         return;
-
-    int individual_idx = idx / NUM_OF_DIMENSIONS;
-    curandState localState = states[individual_idx];
-   
-    // Générer une valeur aléatoire
-    float random_value = START_RANGE_MIN +
-        curand_uniform(&localState) * (START_RANGE_MAX - START_RANGE_MIN);
-   
-    // Sauvegarder l'état mis à jour
-    states[individual_idx] = localState;
-   
-    // Sauvegarder la valeur générée
-    population[idx] = random_value;
+        
+    int individual = idx / NUM_OF_DIMENSIONS;
+    int dimension = idx % NUM_OF_DIMENSIONS;
+    
+    curandState localState = states[individual];
+    
+    // Forcer une distribution plus large
+    float random = curand_uniform(&localState);
+    // Utiliser une distribution en U pour éviter la concentration autour de 0
+    float sign = (random > 0.5f) ? 1.0f : -1.0f;
+    float range_third = (START_RANGE_MAX - START_RANGE_MIN) / 3.0f;
+    float value;
+    
+    if (random < 0.33f) {
+        value = sign * (START_RANGE_MAX - range_third + random * range_third);
+    } else if (random < 0.66f) {
+        value = sign * (range_third + random * range_third);
+    } else {
+        value = sign * (random * range_third);
+    }
+    
+    // Garantir les bornes
+    value = fmin(fmax(value, START_RANGE_MIN), START_RANGE_MAX);
+    
+    population[idx] = value;
+    
+    if(dimension == NUM_OF_DIMENSIONS - 1) {
+        states[individual] = localState;
+    }
 }
+
+// Ajuster la configuration des blocs
+
 
 // Préparation des indices pour la mutation
 __global__ void kernelPrepareMutation(int *indexMutation, curandState *states) {
@@ -191,21 +211,51 @@ extern "C" void cuda_de(float *population, float *gBest) {
    cudaMalloc((void**)&devStatesCrossover, sizeof(curandState) * NUM_OF_POPULATION);
 
    // Configuration des kernels
-   int threadsPerBlock = 256;
-   int blocksPerGrid = (NUM_OF_POPULATION + threadsPerBlock - 1) / threadsPerBlock;
+//    int threadsPerBlock = 256;
+//    int blocksPerGrid = (NUM_OF_POPULATION + threadsPerBlock - 1) / threadsPerBlock;
 
-   // Initialisation de la population
-   setupCurand<<<blocksPerGrid, threadsPerBlock>>>(devStatesInit, time(NULL));
+//    // Initialisation de la population
+//    setupCurand<<<blocksPerGrid, threadsPerBlock>>>(devStatesInit, time(NULL));
+
+    int threadsPerBlock = 256;
+    int totalElements = NUM_OF_POPULATION * NUM_OF_DIMENSIONS;
+    int blocksPerGrid = (totalElements + threadsPerBlock - 1) / threadsPerBlock;
+
+    // Initialisation avec une graine différente
+    setupCurand<<<blocksPerGrid, threadsPerBlock>>>(devStatesInit, time(NULL));
+
+
+
    kernelInitializePopulation<<<blocksPerGrid, threadsPerBlock>>>(devPopulation, devStatesInit);
+    cudaMemcpy(population, devPopulation, sizeof(float) * size, cudaMemcpyDeviceToHost);
    cudaDeviceSynchronize();
 
-   // Copier la population initiale vers l'hôte pour initialiser gBest
-   cudaMemcpy(population, devPopulation, sizeof(float) * size, cudaMemcpyDeviceToHost);
+    // Copier la population initiale vers l'hôte pour initialiser gBest
+    printf("Population initiale:\n");
+    for(int i = 0; i < NUM_OF_POPULATION; i++) {
+        printf("Individu %d: ", i);
+        for(int j = 0; j < NUM_OF_DIMENSIONS; j++) {
+            printf("%.6f ", population[i * NUM_OF_DIMENSIONS + j]);
+        }
+        printf("\n");
+    }
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("CUDA Error après initialisation: %s\n", cudaGetErrorString(err));
+        return;
+    }
+
+    
    
    // Initialiser gBest avec le premier individu
-   float bestFitness = host_fitness_function(population);
-   memcpy(gBest, population, NUM_OF_DIMENSIONS * sizeof(float));
-   
+//    memcpy(gBest, population, NUM_OF_DIMENSIONS * sizeof(float));
+
+   for(int i =0; i < NUM_OF_DIMENSIONS; i++) {
+       gBest[i] = population[i];
+   }
+    float bestFitness = host_fitness_function(gBest);
+
    printf("Fitness initiale: %f\n", bestFitness);
 
    // Boucle principale DE
@@ -245,6 +295,8 @@ extern "C" void cuda_de(float *population, float *gBest) {
                 printf("]\n");
             }
         }
+
+        // printf("MA6AYAy\n");
         
         // Condition d'arrêt si on est proche de l'optimum global
         if(fabs(bestFitness - GLOBAL_OPTIMUM) < EPSILON) {
