@@ -72,3 +72,47 @@ float getRandomClamped() {
     return (float) rand()/(float) RAND_MAX;
 }
 
+// Debug
+void writeArrayToFile(const float* array, int size, const char* filename) {
+    FILE* file = fopen(filename, "w");
+    if (!file) {
+        fprintf(stderr, "Impossible d'ouvrir le fichier %s\n", filename);
+        return;
+    }
+    
+    for (int i = 0; i < size; i++) {
+        fprintf(file, "%.6f\n", array[i]);
+    }
+    fclose(file);
+}
+
+void writeArrayToFile(const int* array, int size, const char* filename) {
+    FILE* file = fopen(filename, "w");
+    if (!file) {
+        fprintf(stderr, "Impossible d'ouvrir le fichier %s\n", filename);
+        return;
+    }
+    
+    for (int i = 0; i < size; i++) {
+        fprintf(file, "%d\n", array[i]);
+    }
+    fclose(file);
+}
+
+void write2DArrayToFile(const float* array, int rows, int cols, const char* filename) {
+    FILE* file = fopen(filename, "w");
+    if (!file) {
+        fprintf(stderr, "Impossible d'ouvrir le fichier %s\n", filename);
+        return;
+    }
+    
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            fprintf(file, "%.6f", array[i * cols + j]);
+            if (j < cols - 1) fprintf(file, ",");
+        }
+        fprintf(file, "\n");
+    }
+    fclose(file);
+}
+// Fin Debug

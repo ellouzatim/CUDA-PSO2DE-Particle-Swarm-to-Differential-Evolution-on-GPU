@@ -75,15 +75,34 @@ __device__ float device_fitness_function(float x[]) {
     return res;
 }
 
+// __global__ void kernelInitializePopulation(float *population, curandState *states) {
+//     int i = blockIdx.x * blockDim.x + threadIdx.x;
+//     // avoid an out of bound for the array
+//     if (i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS)
+//         return;
+
+//     curandState localState = states[i / NUM_OF_DIMENSIONS];
+//     // random entre
+//     population[i] = START_RANGE_MIN + curand_uniform(&localState) * (START_RANGE_MAX - START_RANGE_MIN);
+// }
+
 __global__ void kernelInitializePopulation(float *population, curandState *states) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    // avoid an out of bound for the array
-    if (i >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS)
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= NUM_OF_POPULATION * NUM_OF_DIMENSIONS)
         return;
 
-    curandState localState = states[i / NUM_OF_DIMENSIONS];
-    // random entre
-    population[i] = START_RANGE_MIN + curand_uniform(&localState) * (START_RANGE_MAX - START_RANGE_MIN);
+    int individual_idx = idx / NUM_OF_DIMENSIONS;
+    curandState localState = states[individual_idx];
+    
+    // Générer une valeur aléatoire
+    float random_value = START_RANGE_MIN + 
+        curand_uniform(&localState) * (START_RANGE_MAX - START_RANGE_MIN);
+    
+    // Sauvegarder l'état mis à jour
+    states[individual_idx] = localState;
+    
+    // Sauvegarder la valeur générée
+    population[idx] = random_value;
 }
 
 __global__ void kernelEvaluerPopulationInitiale(float *population, float *evaluation) {
@@ -106,9 +125,9 @@ __global__ void kernelEvaluerPopulationInitiale(float *population, float *evalua
  */
 
 __global__ void setupCurand(curandState *states, unsigned long long seed) {
-    int i = threadIdx.x + blockIdx.x * blockDim.x;
-    if (i < NUM_OF_POPULATION || i % NUM_OF_DIMENSIONS != 0) {
-        curand_init(seed, i, 0, &states[i]);
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idx < NUM_OF_POPULATION) {  // On initialise un état par individu
+        curand_init(seed, idx, 0, &states[idx]);
     }
 }
 
@@ -138,7 +157,7 @@ __global__ void kernelPrepareMutation(int *indexMutation, curandState *states) {
         unsigned int randomIdx = curand(&localState) % NUM_OF_POPULATION;
         if (randomIdx != offsetIndividu && !used[randomIdx]) {
             indexMutation[offsetIndexMutation + count] = randomIdx;
-            used[randomIdx] = 1;
+            used[randomIdx] = randomIdx;
             count++;
             attempts++;
         }
@@ -227,6 +246,15 @@ __global__ void kernelEvaluerPopulation(float *population, float *mutatedPopulat
 }
 
 extern "C" void cuda_de(float *population, float *gBest) {
+
+    // Debug
+    float* h_population = new float[NUM_OF_POPULATION * NUM_OF_DIMENSIONS];
+    float* h_init_population = new float[NUM_OF_POPULATION * NUM_OF_DIMENSIONS];
+    float* h_mutants = new float[NUM_OF_POPULATION * NUM_OF_DIMENSIONS];
+    int* h_indexMutation = new int[NUM_OF_POPULATION * 3];
+    char filename[100];
+    // Fin Debug
+
     int size = NUM_OF_POPULATION * NUM_OF_DIMENSIONS;
 
     float *devPopulation;
@@ -249,19 +277,36 @@ extern "C" void cuda_de(float *population, float *gBest) {
     cudaMalloc((void**)&devStatesCrossover, sizeof(curandState) * size);
     // cudaMalloc((void**)&devGBest, sizeof(float) * NUM_OF_DIMENSIONS);
 
-    int threadsNum = 256;
-    int blocksNum = (NUM_OF_POPULATION + threadsNum - 1) / threadsNum;
+    int threadsPerBlock = 256;
+    //int blocksNum = (NUM_OF_POPULATION + threadsNum - 1) / threadsNum;
+    int blocksForPop = (NUM_OF_POPULATION * NUM_OF_DIMENSIONS + threadsPerBlock - 1) / threadsPerBlock;
+    int blocksForStates = (NUM_OF_POPULATION + threadsPerBlock - 1) / threadsPerBlock;
 
-    size_t sharedMemSize = threadsNum * NUM_OF_DIMENSIONS * 3 * sizeof(float);
+    size_t sharedMemSize = threadsPerBlock * NUM_OF_DIMENSIONS * 3 * sizeof(float);
 
-    cudaMemcpy(devPopulation, population, sizeof(float) * size, cudaMemcpyHostToDevice);
+    //cudaMemcpy(devPopulation, population, sizeof(float) * size, cudaMemcpyHostToDevice);
     //cudaMemcpy(devEval, evaluation, sizeof(float) * NUM_OF_POPULATION, cudaMemcpyHostToDevice); // /!\copie de données non initialisées vers le gpu 
 
 
     // Initialisation
-    setupCurand<<<blocksNum, threadsNum>>>(devStatesInitPop, time(NULL));
-    kernelInitializePopulation<<<blocksNum, threadsNum>>>(devPopulation, devStatesInitPop);
-    kernelEvaluerPopulationInitiale<<<blocksNum, threadsNum>>>(devPopulation, devEval); // /!\ ne sert à rien pour l'instant
+    setupCurand<<<blocksForStates, threadsPerBlock>>>(devStatesInitPop, time(NULL));
+    cudaDeviceSynchronize();
+    kernelInitializePopulation<<<blocksForPop, threadsPerBlock>>>(devPopulation, devStatesInitPop);
+    cudaDeviceSynchronize();
+    
+    // Debug
+
+    // Vérification des erreurs
+    cudaError_t error = cudaGetLastError();
+    if (error != cudaSuccess) {
+        printf("CUDA Error: %s\n", cudaGetErrorString(error));
+        // Gérer l'erreur...
+    }
+    cudaMemcpy(h_init_population, devPopulation, sizeof(float) * size, cudaMemcpyDeviceToHost);
+    sprintf(filename, "init_population.csv");
+    write2DArrayToFile(h_init_population, NUM_OF_POPULATION, NUM_OF_DIMENSIONS, filename);
+    // Fin Debug
+    kernelEvaluerPopulationInitiale<<<blocksForPop, threadsPerBlock>>>(devPopulation, devEval); // /!\ ne sert à rien pour l'instant
 
     for (int i = 0; i < size; i += NUM_OF_DIMENSIONS)
         gBest[i] = population[i];
@@ -271,18 +316,20 @@ extern "C" void cuda_de(float *population, float *gBest) {
         float *tempPopulation = new float[size];  //tableau temporaire pour toute la population
         float tempIndividual[NUM_OF_DIMENSIONS]; //pour un individu
 
-        setupCurand<<<blocksNum, threadsNum>>>(devStatesPrepareMutation, time(NULL));
+        setupCurand<<<blocksForStates, threadsPerBlock>>>(devStatesPrepareMutation, time(NULL));
+        cudaDeviceSynchronize();
+
+        kernelPrepareMutation<<<blocksForPop, threadsPerBlock>>>(devIndexMutation, devStatesPrepareMutation);
         
-        kernelPrepareMutation<<<blocksNum, threadsNum>>>(devIndexMutation, devStatesPrepareMutation);
-        
-        kernelDEMutation<<<blocksNum, threadsNum, sharedMemSize>>>(devPopulation, devIndexMutation, devMutants, F);
+        kernelDEMutation<<<blocksForPop, threadsPerBlock, sharedMemSize>>>(devPopulation, devIndexMutation, devMutants, F);
         
         int r = getRandom(0, NUM_OF_DIMENSIONS - 1);
-        setupCurand<<<blocksNum, threadsNum>>>(devStatesCrossover, time(NULL));
-        kernelCrossoverDE<<<blocksNum, threadsNum>>>(devPopulation, devMutants, r, devStatesCrossover);
+        setupCurand<<<blocksForStates, threadsPerBlock>>>(devStatesCrossover, time(NULL));
+        cudaDeviceSynchronize();
+        kernelCrossoverDE<<<blocksForPop, threadsPerBlock>>>(devPopulation, devMutants, r, devStatesCrossover);
 
         // Ajoutez ici le kernel de sélection si nécessaire
-        kernelEvaluerPopulation<<<blocksNum, threadsNum>>>(devPopulation, devMutants);
+        kernelEvaluerPopulation<<<blocksForPop, threadsPerBlock>>>(devPopulation, devMutants);
         
         cudaMemcpy(tempPopulation, devPopulation, sizeof(float) * size, cudaMemcpyDeviceToHost);
         
@@ -296,6 +343,31 @@ extern "C" void cuda_de(float *population, float *gBest) {
                     gBest[k] = tempIndividual[k];
             }
         }
+
+        // Debug
+        if (iter % 100 == 0) {
+            
+            
+            // population
+            sprintf(filename, "population_gen_%d.csv", iter);
+            write2DArrayToFile(tempPopulation, NUM_OF_POPULATION, NUM_OF_DIMENSIONS, filename);
+            
+            // Copie et sauvegarde des indices de mutation
+            cudaMemcpy(h_indexMutation, devIndexMutation,
+                      NUM_OF_POPULATION * 3 * sizeof(int),
+                      cudaMemcpyDeviceToHost);
+            sprintf(filename, "mutation_indices_gen_%d.csv", iter);
+            writeArrayToFile(h_indexMutation, NUM_OF_POPULATION * 3, filename);
+            
+            // Copie et sauvegarde des mutants
+            cudaMemcpy(h_mutants, devMutants,
+                      NUM_OF_POPULATION * NUM_OF_DIMENSIONS * sizeof(float),
+                      cudaMemcpyDeviceToHost);
+            sprintf(filename, "mutants_gen_%d.csv", iter);
+            write2DArrayToFile(h_mutants, NUM_OF_POPULATION, NUM_OF_DIMENSIONS, filename);
+        }
+        //Fin Debug
+
         delete[] tempPopulation;
     }
 
@@ -309,4 +381,11 @@ extern "C" void cuda_de(float *population, float *gBest) {
     cudaFree(devStatesPrepareMutation);
     cudaFree(devStatesCrossover);
     //cudaFree(devGBest);
+
+    // Debug
+    delete[] h_init_population;
+    delete[] h_population;
+    delete[] h_mutants;
+    delete[] h_indexMutation;
+    // Fin Debug
 }

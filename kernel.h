@@ -40,3 +40,9 @@ float getRandomClamped();
 float host_fitness_function(float x[]);
 
 extern "C" void cuda_de(float *population, float* evaluation);
+
+// Debug
+void writeArrayToFile(const float* array, int size, const char* filename);
+void writeArrayToFile(const int* array, int size, const char* filename);
+void write2DArrayToFile(const float* array, int rows, int cols, const char* filename);
+// Fin Debug
