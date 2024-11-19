@@ -8,10 +8,21 @@ __device__ __constant__ float d_F;
 __device__ __constant__ float d_CR;
 __device__ __constant__ float d_ranges[2];
 
+/* Objective function
+0: Levy 3-dimensional
+1: Shifted Rastigrin's Function
+2: Shifted Rosenbrock's Function
+3: Shifted Griewank's Function
+4: Shifted Sphere's Function
+*/
+/**
+ * Runs on the GPU, called from the GPU.
+*/
+
 __device__ float device_fitness_function(float x[]) {
     float res = 0;
     float somme = 0;
-    float produit = 1;
+    float produit = 0;
 
     switch (SELECTED_OBJ_FUNC) {
         case 0: {
@@ -45,7 +56,7 @@ __device__ float device_fitness_function(float x[]) {
             for (int i = 0; i < NUM_OF_DIMENSIONS; i++) {
                 float zi = x[i] - 0;
                 somme += pow(zi, 2) / 4000;
-                produit *= cos(zi / pow(i + 1, 0.5f));
+                produit *= cos(zi / pow(i + 1, 0.5));
             }
             res = somme - produit + 1 - 180;
             break;
