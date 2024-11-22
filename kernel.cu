@@ -70,7 +70,12 @@ __device__ float device_fitness_function(float x[]) {
     }
     return res;
 }
-
+/**
+ * Initialise les états du générateur de nombres aléatoires CUDA
+ * @param states Pointeur vers le tableau des états curandState pour la génération de nombres aléatoires
+ * @param seed La valeur de la graine pour la génération de nombres aléatoires
+ * @global Exécuté sur GPU avec plusieurs threads
+ */
 __global__ void setupCurand(curandState *states, unsigned long long seed) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx < NUM_OF_POPULATION) {
@@ -78,13 +83,19 @@ __global__ void setupCurand(curandState *states, unsigned long long seed) {
     }
 }
 
+/**
+ * Initialise la population avec des valeurs aléatoires dans les plages spécifiées
+ * @param population Pointeur vers le tableau de la population
+ * @param fitness Pointeur vers le tableau des valeurs de fitness
+ * @param states Pointeur vers le tableau curandState pour la génération aléatoire
+ * @global Exécuté sur GPU avec plusieurs threads
+ */
 __global__ void kernelInitializePopulation(float* population, float* fitness, curandState* states) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= NUM_OF_POPULATION) return;
 
     curandState localState = states[idx];
     float individual[NUM_OF_DIMENSIONS];
-
     
     for(int d = 0; d < NUM_OF_DIMENSIONS; d++) {
         float random_value = d_ranges[0] + curand_uniform(&localState) * (d_ranges[1] - d_ranges[0]);
@@ -96,6 +107,13 @@ __global__ void kernelInitializePopulation(float* population, float* fitness, cu
     states[idx] = localState;
 }
 
+/**
+ * Prépare les indices de mutation pour l'évolution différentielle
+ * Sélectionne trois indices aléatoires uniques pour chaque individu de la population
+ * @param indexMutation Pointeur vers le tableau stockant les indices de mutation
+ * @param states Pointeur vers le tableau curandState pour la génération aléatoire
+ * @global Exécuté sur GPU avec plusieurs threads
+ */
 __global__ void kernelPrepareMutation(int* indexMutation, curandState* states) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= NUM_OF_POPULATION) return;
@@ -117,6 +135,14 @@ __global__ void kernelPrepareMutation(int* indexMutation, curandState* states) {
     states[idx] = localState;
 }
 
+/**
+ * Effectue l'opération de mutation de l'évolution différentielle
+ * Génère des vecteurs mutants 
+ * @param population Tableau de la population d'entrée (lecture seule)
+ * @param indexMutation Tableau des indices de mutation (lecture seule)
+ * @param mutants Tableau de sortie pour les vecteurs mutants
+ * @global Exécuté sur GPU avec plusieurs threads
+ */
 __global__ void kernelDEMutation(float* __restrict__ population, 
                                 const int* __restrict__ indexMutation, 
                                 float* __restrict__ mutants) {
@@ -139,6 +165,16 @@ __global__ void kernelDEMutation(float* __restrict__ population,
     mutants[idx] = fmin(fmax(mutant, d_ranges[0]), d_ranges[1]);
 }
 
+/**
+ * Effectue les opérations de croisement et de sélection
+ * Crée des vecteurs d'essai et sélectionne entre parent et essai selon la fitness
+ * @param population Tableau de la population actuelle (entrée/sortie)
+ * @param mutants Tableau des vecteurs mutants
+ * @param fitness Tableau des valeurs de fitness (entrée/sortie)
+ * @param jrand Index aléatoire pour le croisement forcé
+ * @param states Pointeur vers le tableau curandState pour la génération aléatoire
+ * @global Exécuté sur GPU avec plusieurs threads
+ */
 __global__ void kernelCrossoverAndSelection(
     float* population,  
     float* mutants,
@@ -170,12 +206,19 @@ __global__ void kernelCrossoverAndSelection(
     states[idx] = localState;
 }
 
+/**
+ * Fonction principale de l'évolution différentielle CUDA
+ * Coordonne l'exécution complète de l'algorithme DE sur GPU
+ * @param population Pointeur vers le tableau de population sur l'hôte
+ * @param gBest Pointeur pour stocker la meilleure solution trouvée
+ * @return void
+ */
 extern "C" void cuda_de(float *population, float *gBest) {
-    //constantes sur cpu
+    // Initialisation des constantes sur CPU
     float h_ranges[2] = {START_RANGE_MIN, START_RANGE_MAX};
     float h_F = F;
     float h_CR = CR;
-    //cpy cpu vers gpu
+    //  CPU vers le GPU
     cudaMemcpyToSymbol(d_ranges, h_ranges, sizeof(float) * 2);
     cudaMemcpyToSymbol(d_F, &h_F, sizeof(float));
     cudaMemcpyToSymbol(d_CR, &h_CR, sizeof(float));
@@ -191,11 +234,11 @@ extern "C" void cuda_de(float *population, float *gBest) {
     cudaMalloc(&d_indexMutation, NUM_OF_POPULATION * 3 * sizeof(int));
     cudaMalloc(&d_states, NUM_OF_POPULATION * sizeof(curandState));
     
+    // Calcul des dimensions des threads et des blocs
     int threadsNum = 256;
     int blockPop = (size + threadsNum - 1) / threadsNum;
     int blockInd = (NUM_OF_POPULATION + threadsNum - 1) / threadsNum;
 
-    // Initialisation
     setupCurand<<<blockInd, threadsNum>>>(d_states, time(NULL));
     kernelInitializePopulation<<<blockInd, threadsNum>>>(d_population, d_fitness, d_states);
     cudaMemcpy(gBest, d_population, NUM_OF_DIMENSIONS * sizeof(float), cudaMemcpyDeviceToHost);
@@ -203,6 +246,7 @@ extern "C" void cuda_de(float *population, float *gBest) {
     float *h_temp = new float[size];
     float best_fitness = INFINITY;
     
+    // Boucle principale 
     for (int iter = 0; iter < MAX_ITER; iter++) {
       int jrand = rand() % NUM_OF_DIMENSIONS;
       
@@ -210,6 +254,7 @@ extern "C" void cuda_de(float *population, float *gBest) {
       kernelDEMutation<<<blockPop, threadsNum>>>(d_population, d_indexMutation, d_mutants);
       kernelCrossoverAndSelection<<<blockInd, threadsNum>>>(d_population, d_mutants, d_fitness, jrand, d_states);
     
+      // Mise à jour de la meilleure solution
       cudaMemcpy(h_temp, d_population, size * sizeof(float), cudaMemcpyDeviceToHost);
       for (int i = 0; i < NUM_OF_POPULATION; i++) {
           float fitness = host_fitness_function(&h_temp[i * NUM_OF_DIMENSIONS]);

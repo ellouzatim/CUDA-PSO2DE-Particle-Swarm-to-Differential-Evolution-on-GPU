@@ -3,6 +3,30 @@ import pandas as pd
 import time
 import os
 from datetime import datetime
+"""
+Fichier d'expérimentation pour l'algorithme d'Évolution Différentielle (DE) sur GPU
+
+Ce fichier définit un framework complet pour exécuter et analyser des expériences
+d'optimisation utilisant l'algorithme d'Évolution Différentielle implémenté en CUDA.
+
+Fonctionnalités :
+- Configuration automatique des paramètres d'expérimentation
+- Compilation automatisée du code CUDA
+- Exécution de tests sur différentes fonctions de benchmark
+- Tests avec différentes tailles de population
+- Répétitions multiples pour assurer la fiabilité statistique
+- Analyse et sauvegarde automatique des résultats
+
+Les expériences sont menées surles 4 fonctions de test standard.
+Chaque expérience est répétée plusieurs 10 avec différentes tailles de population (50, 100, 500) 
+pour analyser l'impact de la taille de la population sur les performanceset une dimension qu'on définit à 10 pour ce cas.
+
+Les résultats sont automatiquement enregistrés dans des fichiers CSV, incluant :
+- Les résultats détaillés de chaque exécution
+- Les statistiques agrégées (moyenne, écart-type, min, max)
+- Les temps d'exécution
+- Les valeurs minimales trouvées
+"""
 
 class DEExperiments:
     def __init__(self):
@@ -52,14 +76,11 @@ extern "C" void cuda_de(float *population, float* evaluation);
             
     def compile_de(self, pop_size, func_id):
         try:
-            # S'assurer que les anciens fichiers sont nettoyés
             if os.path.exists("programde"):
                 os.remove("programde")
             
-            # Créer le nouveau header
             self.create_modified_header(pop_size, func_id)
             
-            # Compiler avec le nouveau header
             compile_command = "nvcc -o programde main.cpp kernel.cpp kernel.cu"
             result = subprocess.run(compile_command.split(), 
                                  check=True, 
@@ -116,7 +137,7 @@ extern "C" void cuda_de(float *population, float* evaluation);
                 
                 func_results.extend(pop_results)
             
-            # Afficher résumé pour cette fonction
+            #  résumé pour cette fonction
             if func_results:
                 df_func = pd.DataFrame(func_results)
                 print(f"\nRésumé pour {func_info['name']}:")
@@ -136,11 +157,11 @@ extern "C" void cuda_de(float *population, float* evaluation);
             
         df = pd.DataFrame(self.results)
         
-        # Sauvegarder les résultats bruts
+        # Sauvegarde des résultats bruts
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         df.to_csv(f"de_results_{timestamp}.csv", index=False)
         
-        # Calculer et sauvegarder les statistiques
+        # Calcul et sauvegarder les statistiques
         stats = df.groupby(['function_name', 'population']).agg({
             'time': ['mean', 'std', 'min', 'max'],
             'minimum': ['mean', 'std', 'min', 'max']
