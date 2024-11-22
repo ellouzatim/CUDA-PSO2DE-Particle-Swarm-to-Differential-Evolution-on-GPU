@@ -16,9 +16,10 @@ __device__ __constant__ float d_ranges[2];
 4: Shifted Sphere's Function
 */
 /**
- * Runs on the GPU, called from the GPU.
-*/
-
+ * @brief Calcule la valeur de fitness d'un individu sur GPU
+ * @param x Tableau des coordonnées de l'individu
+ * @return Valeur de fitness calculée
+ */
 __device__ float device_fitness_function(float x[]) {
     float res = 0;
     float somme = 0;
